@@ -1,0 +1,41 @@
+version: '3.7'
+
+volumes:
+  local_postgres_data: {}
+  local_postgres_data_backups: {}
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: ./dockerfiles/Postgres/Dockerfile
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: store_task_db
+      POSTGRES_USER: debug
+      POSTGRES_PASSWORD: debug
+    image: postgres:12.7
+    container_name: postgres_test_store
+    volumes:
+      - local_postgres_data:/var/lib/postgresql/data:Z
+      - local_postgres_data_backups:/backups:z
+
+  redis:
+    image: redis:5.0
+    container_name: redis_store_task
+    ports:
+      - '6379:6379'
+
+  django:
+    build:
+      context: .
+      dockerfile: ./dockerfiles/django/Dockerfile
+    depends_on:
+      - postgres
+    container_name: django_test_store
+    volumes:
+      - .:/app:z
+    ports:
+      - "8000:8000"
+    command: ./dockerfiles/django/start
