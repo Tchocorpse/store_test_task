@@ -2,7 +2,10 @@ import logging
 
 from django.contrib.auth.models import User
 from django.http import JsonResponse
+from drf_yasg import openapi
+from drf_yasg.utils import swagger_auto_schema
 from rest_framework import generics
+from rest_framework.decorators import api_view
 from rest_framework.generics import RetrieveAPIView
 from rest_framework.views import APIView
 
@@ -36,6 +39,17 @@ class DisplayOrders(generics.ListAPIView):
 
 
 class CreateOrder(APIView):
+    @swagger_auto_schema(method='post', request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        properties={
+            'order': openapi.Schema(type=openapi.TYPE_OBJECT, description='list of json', properties={
+                'id': openapi.Schema(type=openapi.TYPE_NUMBER, description='product id'),
+                'quantity': openapi.Schema(type=openapi.TYPE_NUMBER, description='quantity of product order'),
+            }),
+            'user': openapi.Schema(type=openapi.TYPE_NUMBER, description='id of user making order'),
+        }
+    ))
+    @api_view(['POST'])
     def post(self, request):
         try:
             received_order = request.data["order"]
@@ -140,6 +154,14 @@ class CompleteOrder(APIView):
 
 
 class SummaryReport(APIView):
+    @swagger_auto_schema(method='post', request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        properties={
+            'first_date': openapi.Schema(type=openapi.TYPE_STRING, description='starting datetime'),
+            'second_date': openapi.Schema(type=openapi.TYPE_STRING, description='ending datetime'),
+        }
+    ))
+    @api_view(['POST'])
     def post(self, request):
         try:
             first_date = request.data['first_date']
