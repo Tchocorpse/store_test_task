@@ -63,8 +63,11 @@ class ProductOrder(models.Model):
 class SummaryReportModel(models.Model):
     id = AutoField(primary_key=True)
 
-    description = TextField(verbose_name="Описание", blank=True, null=True)
+    name = CharField(verbose_name="Имя Отчета", max_length=255, blank=True, null=True, unique=True)
     first_date = models.DateTimeField(blank=False, null=False)
     second_date = models.DateTimeField(blank=False, null=False)
 
-    summary_report = models.TextField(verbose_name="Отчет", blank=True, null=True)
+    created = models.DateTimeField(auto_now_add=True, blank=False, null=False)
+    updated = models.DateTimeField(auto_now=True, blank=False, null=False)
+
+    summary_report = models.FileField(verbose_name="CSV файл отчета", upload_to='SummaryReports/')

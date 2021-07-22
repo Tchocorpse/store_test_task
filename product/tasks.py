@@ -1,14 +1,14 @@
 import collections
-import json
+import csv
 import logging
+import os
 
 from product.models import Product, ProductOrder, SummaryReportModel
 from store_test_task.celery import app
 
 
 @app.task(bind=True)
-def summary_task(self, first_date, second_date):
-
+def summary_task(self, first_date, second_date, name):
     products = Product.objects.all()
     product_dict = {}
     for product in products:
@@ -44,8 +44,28 @@ def summary_task(self, first_date, second_date):
             }
         )
 
-    product_string = json.dumps(product_dict)
-    new_summary = SummaryReportModel(first_date=first_date, second_date=second_date, summary_report=product_string)
-    new_summary.save()
+    cur_path = os.getcwd()
+    dir_path = os.path.join(cur_path, 'SummaryReports')
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
 
-    logging.warning(new_summary)
+    file_path = os.path.join(dir_path, name)
+    with open(file_path, "w") as summary_file:
+        writer = csv.writer(summary_file)
+
+        writer.writerow(["product", "revenue", "profit", "sold", "returned"])
+        for s_product in product_dict:
+            writer.writerow(
+                [
+                    s_product,
+                    product_dict[s_product]["revenue"],
+                    product_dict[s_product]["profit"],
+                    product_dict[s_product]["sold"],
+                    product_dict[s_product]['returned'],
+                ]
+            )
+
+        new_summary = SummaryReportModel(first_date=first_date, second_date=second_date, summary_report=file_path, name=name)
+        new_summary.save()
+
+    return new_summary

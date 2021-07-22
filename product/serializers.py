@@ -1,3 +1,5 @@
+import json
+
 from rest_framework import serializers
 from product.models import Product, Order, ProductOrder, SummaryReportModel
 
@@ -32,4 +34,25 @@ class DisplayOrdersSerializer(serializers.ModelSerializer):
 class SummaryReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = SummaryReportModel
+        fields = "__all__"
+
+
+class SummaryReportIdName(serializers.ModelSerializer):
+    class Meta:
+        model = SummaryReportModel
+        fields = ('id', 'name')
+
+
+class ProductListSerializer(serializers.ListSerializer):
+
+    def create(self, validated_data):
+        products = [Product(**item) for item in validated_data]
+        return Product.objects.bulk_create(products)
+
+
+class ProductBulkSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        list_serializer_class = ProductListSerializer
+        model = Product
         fields = "__all__"

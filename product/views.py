@@ -1,7 +1,9 @@
+import datetime
 import logging
+from wsgiref.util import FileWrapper
 
 from django.contrib.auth.models import User
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import generics, status
@@ -14,8 +16,44 @@ from product.serializers import (
     UpdateProductSerializer,
     DisplayOrdersSerializer,
     SummaryReportSerializer,
+    SummaryReportIdName,
+    ProductBulkSerializer,
 )
 from product.tasks import summary_task
+
+
+# Products section #
+
+
+bulk_products_schema = openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "products_list": openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    description="list of products",
+                    properties={
+                        "product_name": openapi.Schema(
+                            type=openapi.TYPE_STRING, description="product name"
+                        ),
+                        "description": openapi.Schema(
+                            type=openapi.TYPE_NUMBER, description="product description",
+                        ),
+                        "stock": openapi.Schema(
+                            type=openapi.TYPE_NUMBER,
+                            description="quantity of product in stock",
+                        ),
+                        "price": openapi.Schema(
+                            type=openapi.TYPE_NUMBER,
+                            description="price of the product",
+                        ),
+                        "cost_price": openapi.Schema(
+                            type=openapi.TYPE_NUMBER,
+                            description="cost price of the product",
+                        ),
+                    },
+                ),
+            },
+        )
 
 
 class GetProducts(generics.ListAPIView):
@@ -23,14 +61,64 @@ class GetProducts(generics.ListAPIView):
     serializer_class = ProductSerializer
 
 
-class PostProducts(generics.CreateAPIView):
+class PostProduct(generics.CreateAPIView):
     serializer_class = ProductSerializer
 
 
-class UpdateProducts(generics.UpdateAPIView):
+class UpdateProduct(generics.UpdateAPIView):
     queryset = Product.objects.all()
     lookup_field = "pk"
     serializer_class = UpdateProductSerializer
+
+
+class PostBulkProducts(APIView):
+    @swagger_auto_schema(
+        method="post",
+        request_body=bulk_products_schema,
+        responses={status.HTTP_200_OK: ProductBulkSerializer,},
+    )
+    @action(detail=False, methods=["POST"])
+    def post(self, request):
+        try:
+            products_list = request.data["products_list"]
+        except KeyError:
+            return JsonResponse(
+                {"error": f"Missing or invalid products list in request json"},
+                status=400,
+            )
+
+        serialized_products = ProductBulkSerializer(data=products_list, many=True)
+        if serialized_products.is_valid():
+            serialized_products.save()
+
+            return JsonResponse({"completed_order": serialized_products}, status=200)
+        else:
+            return JsonResponse({"error": "validation error"}, status=200)
+
+
+# Orders section #
+
+
+order_request_schema = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        "order": openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            description="list of json",
+            properties={
+                "id": openapi.Schema(
+                    type=openapi.TYPE_NUMBER, description="product id"
+                ),
+                "quantity": openapi.Schema(
+                    type=openapi.TYPE_NUMBER, description="quantity of product order",
+                ),
+            },
+        ),
+        "user": openapi.Schema(
+            type=openapi.TYPE_NUMBER, description="id of user making order"
+        ),
+    },
+)
 
 
 class DisplayOrders(generics.ListAPIView):
@@ -38,36 +126,11 @@ class DisplayOrders(generics.ListAPIView):
     serializer_class = DisplayOrdersSerializer
 
 
-order_request_schema = openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                "order": openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    description="list of json",
-                    properties={
-                        "id": openapi.Schema(
-                            type=openapi.TYPE_NUMBER, description="product id"
-                        ),
-                        "quantity": openapi.Schema(
-                            type=openapi.TYPE_NUMBER,
-                            description="quantity of product order",
-                        ),
-                    },
-                ),
-                "user": openapi.Schema(
-                    type=openapi.TYPE_NUMBER, description="id of user making order"
-                ),
-            },
-        )
-
-
 class CreateOrder(APIView):
     @swagger_auto_schema(
         method="post",
         request_body=order_request_schema,
-        responses={
-            status.HTTP_200_OK: DisplayOrdersSerializer,
-        },
+        responses={status.HTTP_200_OK: DisplayOrdersSerializer,},
     )
     @api_view(["POST"])
     def post(self, request):
@@ -131,11 +194,9 @@ class UpdateOrder(APIView):
     @swagger_auto_schema(
         method="put",
         request_body=order_request_schema,
-        responses={
-            status.HTTP_200_OK: DisplayOrdersSerializer,
-        },
+        responses={status.HTTP_200_OK: DisplayOrdersSerializer,},
     )
-    @action(detail=False, methods=['PUT'])
+    @action(detail=False, methods=["PUT"])
     def put(self, request, pk):
         try:
             order = Order.objects.get(pk=pk)
@@ -192,7 +253,7 @@ class UpdateOrder(APIView):
     def reorder_by_id(self, reordering_list):
         reordered_dict = {}
         for unit in reordering_list:
-            reordered_dict.update({unit['id']: unit['quantity']})
+            reordered_dict.update({unit["id"]: unit["quantity"]})
         return reordered_dict
 
     def save_models(self, model_list):
@@ -206,7 +267,7 @@ class CancelOrder(APIView):
             order = Order.objects.get(pk=pk)
         except Order.DoesNotExist:
             return JsonResponse(
-                {"error": f"Missing or invalid order id {pk} in request"}, status=400
+                {"error": f"No such order with id {pk} in request"}, status=400
             )
 
         if order.order_status == "completed":
@@ -247,11 +308,17 @@ class CompleteOrder(APIView):
         return JsonResponse({"completed_order": serialized_data}, status=200)
 
 
-class SummaryReport(APIView):
-    @swagger_auto_schema(
-        method="post",
-        request_body=openapi.Schema(
+class GetOrder(generics.RetrieveAPIView):
+    queryset = Order.objects.all()
+    serializer_class = DisplayOrdersSerializer
+
+
+# Summary reports section #
+
+
+summary_report_request_schema = openapi.Schema(
             type=openapi.TYPE_OBJECT,
+            required=["first_date", "second_date"],
             properties={
                 "first_date": openapi.Schema(
                     type=openapi.TYPE_STRING, description="starting datetime"
@@ -259,8 +326,18 @@ class SummaryReport(APIView):
                 "second_date": openapi.Schema(
                     type=openapi.TYPE_STRING, description="ending datetime"
                 ),
+                "name": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Optional name of the report. Should be unique.",
+                ),
             },
-        ),
+        )
+
+
+class SummaryReport(APIView):
+    @swagger_auto_schema(
+        method="post",
+        request_body=summary_report_request_schema,
         responses={
             status.HTTP_200_OK: openapi.Schema(
                 type=openapi.TYPE_OBJECT,
@@ -272,7 +349,7 @@ class SummaryReport(APIView):
             ),
         },
     )
-    @api_view(["POST"])
+    @action(detail=False, methods=["POST"])
     def post(self, request):
         try:
             first_date = request.data["first_date"]
@@ -282,13 +359,90 @@ class SummaryReport(APIView):
                 {"error": f"Missing or invalid date in request json"}, status=400
             )
 
-        summary_task.apply_async(args=[first_date, second_date])
+        try:
+            name = request.data["name"]
+        except KeyError:
+            name = self.generate_name()
+
+        try:
+            summary = SummaryReportModel.objects.get(name=name)
+        except SummaryReportModel.DoesNotExist:
+            summary_task.apply_async(args=[first_date, second_date, name])
+            return JsonResponse(
+                {"Summary": f"summary task named {name} created, please wait"},
+                status=200,
+            )
 
         return JsonResponse(
-            {"Summary": "summary task created, please wait"}, status=200
+            {
+                "summary": f"summary task named {name} already exists with id {summary.id}"
+            },
+            status=200,
         )
 
+    def generate_name(self):
+        return f"summary_report_requested_{datetime.datetime.now()}"
 
-class GetSummary(generics.RetrieveAPIView):
+
+class GetSummary(APIView):
+    @swagger_auto_schema(
+        method="get",
+        responses={
+            status.HTTP_200_OK: openapi.Schema(
+                type=openapi.TYPE_FILE, description="CSV report file",
+            ),
+        },
+    )
+    @action(detail=False, methods=["GET"])
+    def get(self, request, pk):
+        try:
+            summary_report = SummaryReportModel.objects.get(pk=pk)
+        except SummaryReportModel.DoesNotExist:
+            return JsonResponse({"error": f"No such report with id {pk}"}, status=400)
+
+        with open(summary_report.summary_report.path, "rb") as report_file:
+            return HttpResponse(
+                FileWrapper(report_file), content_type="application/csv"
+            )
+
+
+class GetSummaryName(APIView):
+    @swagger_auto_schema(
+        method="get",
+        manual_parameters=[
+            openapi.Parameter(
+                in_="query",
+                name="name",
+                type="string",
+                description="unique name of requested summary report",
+            )
+        ],
+        responses={
+            status.HTTP_200_OK: openapi.Schema(
+                type=openapi.TYPE_FILE, description="CSV report file",
+            ),
+        },
+    )
+    @action(detail=False, methods=["GET"])
+    def get(self, request):
+        try:
+            name = request.GET["name"]
+        except KeyError:
+            return JsonResponse(
+                {"error": f"Missing or invalid name in request querystring"}, status=400
+            )
+
+        try:
+            summary_report = SummaryReportModel.objects.get(name=name)
+        except SummaryReportModel.DoesNotExist:
+            return JsonResponse({"error": f"No such report named {name}"}, status=400)
+
+        with open(summary_report.summary_report.path, "rb") as report_file:
+            return HttpResponse(
+                FileWrapper(report_file), content_type="application/csv"
+            )
+
+
+class GetSummaryList(generics.ListAPIView):
     queryset = SummaryReportModel.objects.all()
-    serializer_class = SummaryReportSerializer
+    serializer_class = SummaryReportIdName

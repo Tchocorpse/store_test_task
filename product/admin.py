@@ -37,7 +37,7 @@ def download_csv(self, request, queryset):
 class SummaryAdmin(admin.ModelAdmin):
     model = SummaryReportModel
     readonly_fields = ("id", "first_date", "second_date")
-    list_display = ("id", "description", "first_date", "second_date")
+    list_display = ("id", "name", "first_date", "second_date")
     exclude = ("summary_report",)
     actions = [download_csv]
 
