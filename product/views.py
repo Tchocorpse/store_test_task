@@ -219,7 +219,7 @@ class UpdateOrder(APIView):
             )
 
         new_order_dict = self.reorder_by_id(new_order_products)
-        product_order_qs = ProductOrder.objects.filter(order=pk)
+        product_order_qs = ProductOrder.objects.select_related('product').filter(order=pk)
 
         products_list = []
         product_order_list = []
@@ -275,7 +275,7 @@ class CancelOrder(APIView):
                 {"error": f"Completed orders cannot be cancelled"}, status=400
             )
 
-        product_order_list = ProductOrder.objects.filter(order=pk)
+        product_order_list = ProductOrder.objects.select_related('product').filter(order=pk)
         for product_order in product_order_list:
             product = product_order.product
             product.stock = product.stock + product_order.quantity
@@ -329,6 +329,7 @@ summary_report_request_schema = openapi.Schema(
                 "name": openapi.Schema(
                     type=openapi.TYPE_STRING,
                     description="Optional name of the report. Should be unique.",
+                    maximum=100
                 ),
             },
         )
