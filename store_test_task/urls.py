@@ -18,7 +18,7 @@ from product.views import (
     UpdateOrder,
     GetSummaryList,
     PostBulkProducts,
-    GetSummaryName, GetOrder,
+    GetSummaryName, GetOrder, GetUsers,
 )
 
 
@@ -46,6 +46,7 @@ urlpatterns = [
     path("orders/update/<int:pk>/", UpdateOrder.as_view()),
     path("orders/", DisplayOrders.as_view()),
     path("orders/<int:pk>/", GetOrder.as_view()),
+    path("users/", GetUsers.as_view()),
 
     path("report/create/", SummaryReport.as_view()),
     path("report/name/", GetSummaryName.as_view()),

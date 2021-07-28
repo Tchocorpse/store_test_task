@@ -1,5 +1,6 @@
 import json
 
+from django.contrib.auth.models import User
 from rest_framework import serializers
 from product.models import Product, Order, ProductOrder, SummaryReportModel
 
@@ -55,4 +56,11 @@ class ProductBulkSerializer(serializers.ModelSerializer):
     class Meta:
         list_serializer_class = ProductListSerializer
         model = Product
+        fields = "__all__"
+
+
+class UserModelSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = User
         fields = "__all__"

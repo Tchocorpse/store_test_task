@@ -18,6 +18,7 @@ from product.serializers import (
     SummaryReportSerializer,
     SummaryReportIdName,
     ProductBulkSerializer,
+    UserModelSerializer,
 )
 from product.tasks import summary_task
 
@@ -26,34 +27,32 @@ from product.tasks import summary_task
 
 
 bulk_products_schema = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        "products_list": openapi.Schema(
             type=openapi.TYPE_OBJECT,
+            description="list of products",
             properties={
-                "products_list": openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    description="list of products",
-                    properties={
-                        "product_name": openapi.Schema(
-                            type=openapi.TYPE_STRING, description="product name"
-                        ),
-                        "description": openapi.Schema(
-                            type=openapi.TYPE_NUMBER, description="product description",
-                        ),
-                        "stock": openapi.Schema(
-                            type=openapi.TYPE_NUMBER,
-                            description="quantity of product in stock",
-                        ),
-                        "price": openapi.Schema(
-                            type=openapi.TYPE_NUMBER,
-                            description="price of the product",
-                        ),
-                        "cost_price": openapi.Schema(
-                            type=openapi.TYPE_NUMBER,
-                            description="cost price of the product",
-                        ),
-                    },
+                "product_name": openapi.Schema(
+                    type=openapi.TYPE_STRING, description="product name"
+                ),
+                "description": openapi.Schema(
+                    type=openapi.TYPE_NUMBER, description="product description",
+                ),
+                "stock": openapi.Schema(
+                    type=openapi.TYPE_NUMBER,
+                    description="quantity of product in stock",
+                ),
+                "price": openapi.Schema(
+                    type=openapi.TYPE_NUMBER, description="price of the product",
+                ),
+                "cost_price": openapi.Schema(
+                    type=openapi.TYPE_NUMBER, description="cost price of the product",
                 ),
             },
-        )
+        ),
+    },
+)
 
 
 class GetProducts(generics.ListAPIView):
@@ -91,9 +90,11 @@ class PostBulkProducts(APIView):
         if serialized_products.is_valid():
             serialized_products.save()
 
-            return JsonResponse({"completed_order": serialized_products}, status=200)
+            return JsonResponse(
+                {"completed_order": serialized_products.data}, status=200
+            )
         else:
-            return JsonResponse({"error": "validation error"}, status=200)
+            return JsonResponse({"error": f"validation error"}, status=400)
 
 
 # Orders section #
@@ -132,11 +133,11 @@ class CreateOrder(APIView):
         request_body=order_request_schema,
         responses={status.HTTP_200_OK: DisplayOrdersSerializer,},
     )
-    @api_view(["POST"])
+    @action(detail=False, methods=["POST"])
     def post(self, request):
         try:
             received_order = request.data["order"]
-            received_user = request.data["user"]
+            received_user_id = request.data["user"]
         except KeyError:
             return JsonResponse(
                 {"error": f"Missing or invalid order or user in request json"},
@@ -144,23 +145,31 @@ class CreateOrder(APIView):
             )
 
         try:
-            user = User.objects.get(pk=received_user)
+            user = User.objects.get(pk=received_user_id)
         except User.DoesNotExist:
             return JsonResponse(
-                {"error": f"no such User with id {received_user}"}, status=400
+                {"error": f"no such User with id {received_user_id}"}, status=400
             )
 
         products_list = []
         product_order_list = []
         order = Order(user=user, order_status="stable")
         for unit in received_order:
-            product = self.retrieve_product(unit["id"])
+            try:
+                product = Product.objects.get(pk=unit["id"])
+            except Product.DoesNotExist:
+                return JsonResponse(
+                    {"error": f"no such Product with id {unit['id']}"}, status=400
+                )
             products_list.append(product)
 
             p_quantity = unit["quantity"]
             if p_quantity > product.stock:
                 return JsonResponse(
-                    {"error": "Trying to order more products than in stock"}, status=400
+                    {
+                        "error": f"Trying to order more products than in stock {product.stock} < {p_quantity}"
+                    },
+                    status=400,
                 )
 
             product.stock = product.stock - p_quantity
@@ -175,15 +184,6 @@ class CreateOrder(APIView):
 
         serialized_data = DisplayOrdersSerializer(order).data
         return JsonResponse({"created_order": serialized_data}, status=200)
-
-    def retrieve_product(self, p_id):
-        try:
-            product = Product.objects.get(pk=p_id)
-        except Product.DoesNotExist:
-            return JsonResponse(
-                {"error": f"no such Product with id {p_id}"}, status=400
-            )
-        return product
 
     def save_models(self, model_list):
         for model in model_list:
@@ -205,7 +205,7 @@ class UpdateOrder(APIView):
                 {"error": f"Missing or invalid order id {pk} in request"}, status=400
             )
 
-        if (order.order_status == "completed") or (order.order_status == "completed"):
+        if (order.order_status == "completed") or (order.order_status == "cancelled"):
             return JsonResponse(
                 {"error": f"Completed or cancelled orders cannot be changed"},
                 status=400,
@@ -219,7 +219,9 @@ class UpdateOrder(APIView):
             )
 
         new_order_dict = self.reorder_by_id(new_order_products)
-        product_order_qs = ProductOrder.objects.select_related('product').filter(order=pk)
+        product_order_qs = ProductOrder.objects.select_related("product").filter(
+            order=pk
+        )
 
         products_list = []
         product_order_list = []
@@ -275,7 +277,9 @@ class CancelOrder(APIView):
                 {"error": f"Completed orders cannot be cancelled"}, status=400
             )
 
-        product_order_list = ProductOrder.objects.select_related('product').filter(order=pk)
+        product_order_list = ProductOrder.objects.select_related("product").filter(
+            order=pk
+        )
         for product_order in product_order_list:
             product = product_order.product
             product.stock = product.stock + product_order.quantity
@@ -313,26 +317,31 @@ class GetOrder(generics.RetrieveAPIView):
     serializer_class = DisplayOrdersSerializer
 
 
+class GetUsers(generics.ListAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserModelSerializer
+
+
 # Summary reports section #
 
 
 summary_report_request_schema = openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=["first_date", "second_date"],
-            properties={
-                "first_date": openapi.Schema(
-                    type=openapi.TYPE_STRING, description="starting datetime"
-                ),
-                "second_date": openapi.Schema(
-                    type=openapi.TYPE_STRING, description="ending datetime"
-                ),
-                "name": openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    description="Optional name of the report. Should be unique.",
-                    maximum=100
-                ),
-            },
-        )
+    type=openapi.TYPE_OBJECT,
+    required=["first_date", "second_date"],
+    properties={
+        "first_date": openapi.Schema(
+            type=openapi.TYPE_STRING, description="starting datetime"
+        ),
+        "second_date": openapi.Schema(
+            type=openapi.TYPE_STRING, description="ending datetime"
+        ),
+        "name": openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description="Optional name of the report. Should be unique.",
+            maximum=100,
+        ),
+    },
+)
 
 
 class SummaryReport(APIView):
