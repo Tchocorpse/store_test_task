@@ -297,7 +297,7 @@ class CompleteOrder(APIView):
             order = Order.objects.get(pk=pk)
         except Order.DoesNotExist:
             return JsonResponse(
-                {"error": f"Missing or invalid order id {pk} in request"}, status=400
+                {"error": f"No such order with id {pk} in request"}, status=400
             )
 
         if order.order_status == "cancelled":

@@ -2,6 +2,7 @@ import collections
 import csv
 import logging
 import os
+import datetime
 
 from django.db.models import Sum, F
 
@@ -11,6 +12,13 @@ from store_test_task.celery import app
 
 @app.task(bind=True)
 def summary_task(self, first_date, second_date, name):
+    if not type(name) == str:
+        raise ValueError
+    if not isinstance(datetime.datetime.fromisoformat(first_date), datetime.datetime):
+        raise ValueError
+    if not isinstance(datetime.datetime.fromisoformat(second_date), datetime.datetime):
+        raise ValueError
+
     products = Product.objects.all()
     product_dict = {}
 
